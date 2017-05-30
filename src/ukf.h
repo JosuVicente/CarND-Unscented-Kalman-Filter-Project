@@ -68,6 +68,10 @@ public:
 
 	///* Sigma point spreading parameter
 	double lambda_;
+
+	VectorXd NIS_LASER_;
+	VectorXd NIS_RADAR_;
+
 	
 	/**
 	* Constructor
@@ -113,7 +117,7 @@ public:
 	void PredictMeanAndCovariance();
 	void PredictRadarMeasurement(VectorXd* z_out, MatrixXd* Zsig_out, MatrixXd* S_out);
 	void PredictLidarMeasurement(VectorXd* z_out, MatrixXd* Zsig_out, MatrixXd* S_out);
-	void UpdateState(VectorXd& z_pred, MatrixXd& Zsig, MatrixXd& S, VectorXd z);
+	void UpdateState(VectorXd& z_pred, MatrixXd& Zsig, MatrixXd& S, VectorXd z, MeasurementPackage::SensorType sensor_type);
 };
 
 #endif /* UKF_H */

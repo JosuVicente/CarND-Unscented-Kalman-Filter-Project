@@ -75,6 +75,7 @@ UKF::~UKF() {}
 * @param {MeasurementPackage} meas_package The latest measurement data of
 * either radar or laser.
 */
+
 void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 	if ((meas_package.sensor_type_ == MeasurementPackage::RADAR && !use_radar_)
 		|| (meas_package.sensor_type_ == MeasurementPackage::LASER && !use_laser_)) {
@@ -106,6 +107,10 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 
 		// done initializing, no need to predict or update
 		is_initialized_ = true;
+
+		//Initialize NIS vectors
+		NIS_LASER_ = VectorXd(1);
+		NIS_RADAR_ = VectorXd(1);
 		return;
 	}
 	else {
@@ -136,10 +141,6 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 			// Laser updates	  
 			UpdateLidar(meas_package);
 		}
-
-		// print the output
-		/*cout << "x_ = " << x_ << endl;
-		cout << "P_ = " << P_ << endl;*/
 	}
 
 }
@@ -154,21 +155,16 @@ void UKF::Prediction(double delta_t) {
 	vector, x_. Predict sigma points, the state, and the state covariance matrix.
 	*/
 
-	/* Predict Sigma Points .*/
+	/* Sigma Points .*/
 	MatrixXd Xsig_aug = MatrixXd(n_aug_, 2 * n_aug_ + 1);
 	AugmentedSigmaPoints(&Xsig_aug);
-	//std::cout << "Xsig_aug = " << std::endl << Xsig_aug << std::endl;
 
+	/* Predict Sigma Points .*/
 	Xsig_pred_ = MatrixXd(n_x_, 2 * n_aug_ + 1);
 	SigmaPointPrediction(&Xsig_pred_, Xsig_aug, delta_t);
-	//std::cout << "Xsig_pred_ = " << std::endl << Xsig_pred_ << std::endl;
 
-	/* Predict Mean and Covariance Sigma Points .*/
+	/* Predict Mean and Covariance  .*/
 	PredictMeanAndCovariance();
-	//std::cout << "Predicted state" << std::endl;
-	//std::cout << x_ << std::endl;
-	//std::cout << "Predicted covariance matrix" << std::endl;
-	//std::cout << P_ << std::endl;
 }
 
 /**
@@ -189,16 +185,12 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
 	VectorXd z = VectorXd(2);
 	MatrixXd Zsig = MatrixXd(2, 2 * n_aug_ + 1);
 	MatrixXd S = MatrixXd(2, 2);
-	PredictLidarMeasurement(&z, &Zsig, &S);
-	//std::cout << "z: " << std::endl << z << std::endl;
-	//std::cout << "S: " << std::endl << S << std::endl;
-	//std::cout << "S: " << std::endl << Zsig << std::endl;
 
-	UpdateState(z, Zsig, S, meas_package.raw_measurements_);
-	//std::cout << "Updated state" << std::endl;
-	//std::cout << x_ << std::endl;
-	//std::cout << "Updated covariance matrix" << std::endl;
-	//std::cout << P_ << std::endl;
+	//Predict Lidar
+	PredictLidarMeasurement(&z, &Zsig, &S);
+
+	//Update State
+	UpdateState(z, Zsig, S, meas_package.raw_measurements_, meas_package.sensor_type_);
 }
 
 /**
@@ -218,16 +210,12 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 	VectorXd z = VectorXd(3);
 	MatrixXd Zsig = MatrixXd(3, 2 * n_aug_ + 1);
 	MatrixXd S = MatrixXd(3, 3);
-	PredictRadarMeasurement(&z, &Zsig, &S);
-	//std::cout << "z: " << std::endl << z << std::endl;
-	//std::cout << "S: " << std::endl << S << std::endl;
-	//std::cout << "Zsig: " << std::endl << Zsig << std::endl;
 
-	UpdateState(z, Zsig, S, meas_package.raw_measurements_);
-	//std::cout << "Updated state" << std::endl;
-	//std::cout << x_ << std::endl;
-	//std::cout << "Updated covariance matrix" << std::endl;
-	//std::cout << P_ << std::endl;
+	//Predict Radar
+	PredictRadarMeasurement(&z, &Zsig, &S);
+
+	//Update State
+	UpdateState(z, Zsig, S, meas_package.raw_measurements_, meas_package.sensor_type_);
 }
 
 void UKF::AugmentedSigmaPoints(MatrixXd* Xsig_out) {
@@ -285,7 +273,7 @@ void UKF::SigmaPointPrediction(MatrixXd* Xsig_out, MatrixXd& Xsig_aug, double de
 		double px_o = px;
 		double py_o = py;
 
-		if (fabs(yawrate) > 0.001) {
+		if (fabs(yawrate) > LOW_V) {
 			px_o += (v / yawrate)*(sin(yaw + yawrate*delta_t) - sin(yaw));
 			py_o += (v / yawrate)*(-cos(yaw + yawrate*delta_t) + cos(yaw));
 		}
@@ -311,9 +299,6 @@ void UKF::SigmaPointPrediction(MatrixXd* Xsig_out, MatrixXd& Xsig_aug, double de
 
 	}
 
-	//print result
-	//std::cout << "Xsig_pred = " << std::endl << Xsig_pred << std::endl;
-
 	//write result
 	*Xsig_out = Xsig_pred;
 
@@ -337,12 +322,6 @@ void UKF::PredictMeanAndCovariance() {
 
 		P_ = P_ + weights_(i) * x_diff * x_diff.transpose();
 	}
-
-	////print result
-	//std::cout << "Predicted state" << std::endl;
-	//std::cout << x << std::endl;
-	//std::cout << "Predicted covariance matrix" << std::endl;
-	//std::cout << P << std::endl;
 
 }
 
@@ -399,10 +378,6 @@ void UKF::PredictRadarMeasurement(VectorXd* z_out, MatrixXd* Zsig_out, MatrixXd*
 
 	S += R;
 
-	//print result
-	/*std::cout << "z_pred: " << std::endl << z_pred << std::endl;
-	std::cout << "S: " << std::endl << S << std::endl;*/
-
 	//write result
 	*z_out = z_pred;
 	*S_out = S;
@@ -454,17 +429,13 @@ void UKF::PredictLidarMeasurement(VectorXd* z_out, MatrixXd* Zsig_out, MatrixXd*
 
 	S += R;
 
-	//print result
-	/*std::cout << "z_pred: " << std::endl << z_pred << std::endl;
-	std::cout << "S: " << std::endl << S << std::endl;*/
-
 	//write result
 	*z_out = z_pred;
 	*S_out = S;
 	*Zsig_out = Zsig;
 }
 
-void UKF::UpdateState(VectorXd& z_pred, MatrixXd& Zsig, MatrixXd& S, VectorXd z) {
+void UKF::UpdateState(VectorXd& z_pred, MatrixXd& Zsig, MatrixXd& S, VectorXd z, MeasurementPackage::SensorType sensor_type) {
 
 	//set measurement dimension, radar can measure r, phi, and r_dot
 	int n_z = z_pred.size();
@@ -500,14 +471,19 @@ void UKF::UpdateState(VectorXd& z_pred, MatrixXd& Zsig, MatrixXd& S, VectorXd z)
 
 	P_ -= K*S*K.transpose();
 
+	//Calculate and store NIS
 	float NIS = (z_diff.transpose())*S.inverse()*z_diff;
-	if (NIS > 7.8) {
-		cout << "NIS: " << NIS << endl;
+
+	if (sensor_type == MeasurementPackage::RADAR) {
+		NIS_RADAR_[NIS_LASER_.size() - 1] = NIS;
+		NIS_RADAR_.conservativeResize(NIS_LASER_.size() + 1);
+
+	}
+	else {
+		NIS_LASER_[NIS_LASER_.size() - 1] = NIS;
+		NIS_LASER_.conservativeResize(NIS_LASER_.size() + 1);
 	}
 
-	//print result
-	/*std::cout << "Updated state x: " << std::endl << x_ << std::endl;
-	std::cout << "Updated state covariance P: " << std::endl << P_ << std::endl;*/
-
+	
 
 }
